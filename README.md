@@ -66,6 +66,26 @@ broadcom-wl, 6.30.223.271, 4.7.6-200.x86_64, x86_64: installed
 
 [2]: http://linux.dell.com/dkms/manpage.html
 
+### Refreshing an existing DKMS registration
+
+`dkms add` copies the source tree into `/usr/src/<package>-<version>` at the time it is run — pulling newer commits
+into this repo (e.g. a kernel-compatibility fix) does **not** update that copy. If a kernel package upgrade triggers
+a DKMS autobuild against stale sources, the build can fail and leave the kernel package (and `apt`/`dpkg` in
+general) stuck half-configured. To refresh the registration with the current source:
+
+```sh
+$ sudo dkms remove -m broadcom-wl -v 6.30.223.271 --all
+$ sudo dkms add /path/to/this/repo
+$ sudo dkms autoinstall
+```
+
+If `apt`/`dpkg` was left in a broken state by a failed autobuild, finish configuring the interrupted packages
+afterwards:
+
+```sh
+$ sudo dpkg --configure -a
+```
+
 ## See also
 
 * [Official README file][3] (download)
