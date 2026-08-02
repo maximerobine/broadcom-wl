@@ -117,15 +117,15 @@ GCCVERSION := $(subst $(space),$(empty),$(GCCVERSION))
 GCCVERSION := $(shell expr `echo $(GCCVERSION)` | cut -b1-3)
 GE_49 := $(shell expr `echo $(GCCVERSION)` \>= 490)
 
-EXTRA_CFLAGS :=
+ccflags-y :=
 
 ifeq ($(APIFINAL),CFG80211)
-  EXTRA_CFLAGS += -DUSE_CFG80211
+  ccflags-y += -DUSE_CFG80211
   $(info Using CFG80211 API)
 endif
 
 ifeq ($(APIFINAL),WEXT)
-  EXTRA_CFLAGS += -DUSE_IW
+  ccflags-y += -DUSE_IW
   $(info Using Wireless Extension API)
 endif
 
@@ -137,15 +137,15 @@ wl-objs            += src/wl/sys/wl_linux.o
 wl-objs            += src/wl/sys/wl_iw.o
 wl-objs            += src/wl/sys/wl_cfg80211_hybrid.o
 
-EXTRA_CFLAGS       += -I$(src)/src/include -I$(src)/src/common/include
-EXTRA_CFLAGS       += -I$(src)/src/wl/sys -I$(src)/src/wl/phy -I$(src)/src/wl/ppr/include
-EXTRA_CFLAGS       += -I$(src)/src/shared/bcmwifi/include
-#EXTRA_CFLAGS       += -DBCMDBG_ASSERT -DBCMDBG_ERR
+ccflags-y          += -I$(src)/src/include -I$(src)/src/common/include
+ccflags-y          += -I$(src)/src/wl/sys -I$(src)/src/wl/phy -I$(src)/src/wl/ppr/include
+ccflags-y          += -I$(src)/src/shared/bcmwifi/include
+#ccflags-y          += -DBCMDBG_ASSERT -DBCMDBG_ERR
 ifeq "$(GE_49)" "1"
-EXTRA_CFLAGS       += -Wno-date-time
+ccflags-y          += -Wno-date-time
 endif
 
-EXTRA_LDFLAGS      := $(src)/lib/wlc_hybrid.o_shipped
+ldflags-y          := $(src)/lib/wlc_hybrid.o_shipped
 
 KBASE              ?= /lib/modules/`uname -r`
 KBUILD_DIR         ?= $(KBASE)/build
@@ -155,11 +155,20 @@ MDEST_DIR          ?= $(KBASE)/kernel/drivers/net/wireless
 CROSS_TOOLS        = /path/to/tools
 CROSS_KBUILD_DIR   = /path/to/kernel/tree
 
+# wl.o links in the precompiled proprietary lib/wlc_hybrid.o_shipped blob,
+# which predates objtool and carries none of the ORC/IBT/retpoline metadata
+# that kernels with CONFIG_X86_KERNEL_IBT (or LTO/live-patch) builds validate
+# at module-link time ("objtool: ... unannotated intra-function call").
+# objtool has no way to make sense of code it never saw at compile time, and
+# per-object OBJECT_FILES_NON_STANDARD skips don't apply to the final link of
+# a multi-file module (see scripts/Makefile.build, $(multi-obj-m) rule), so
+# the only way to skip that check is to no-op the objtool binary itself for
+# this build. This only affects unwind/CFI metadata for this one module.
 all:
-	KBUILD_NOPEDANTIC=1 make -C $(KBUILD_DIR) M=`pwd`
+	KBUILD_NOPEDANTIC=1 make -C $(KBUILD_DIR) M=`pwd` objtool=true
 
 cross:
-	KBUILD_NOPEDANTIC=1 make CROSS_COMPILE=${CROSS_TOOLS} -C $(CROSS_KBUILD_DIR) M=`pwd`
+	KBUILD_NOPEDANTIC=1 make CROSS_COMPILE=${CROSS_TOOLS} -C $(CROSS_KBUILD_DIR) M=`pwd` objtool=true
 
 clean:
 	KBUILD_NOPEDANTIC=1 make -C $(KBUILD_DIR) M=`pwd` clean
