@@ -86,6 +86,45 @@ afterwards:
 $ sudo dpkg --configure -a
 ```
 
+## Bluetooth on combo cards (BCM43142)
+
+This driver covers the WiFi half of the chip only. On combo parts such as the BCM43142 (`14e4:4365`), which pairs
+802.11b/g/n with Bluetooth 4.0, the Bluetooth radio is a separate USB function (`0a5c:216c`) driven by the in-tree
+`btusb`/`btbcm` modules — no out-of-tree module and no DKMS involved. It does however need a proprietary patch-RAM
+blob that `linux-firmware` does not ship:
+
+```
+Bluetooth: hci0: BCM43142A0 (001.001.011) build 0000
+Bluetooth: hci0: BCM: firmware Patch file not found, tried:
+Bluetooth: hci0: BCM: 'brcm/BCM43142A0-0a5c-216c.hcd'
+Bluetooth: hci0: BCM: 'brcm/BCM-0a5c-216c.hcd'
+```
+
+Without the patch the chip still runs its bare ROM, which makes the symptoms misleading: `btusb` binds, `hci0` comes
+up `UP RUNNING`, `rfkill` is unblocked and `bluetoothd` reports a healthy controller — yet inquiry returns nothing and
+no device is ever discovered. The `build 0000` line above, and an HCI revision of `0x0000`, are the tell.
+
+The `.hcd` blobs can be extracted from the vendor's Windows driver package, or taken from
+[winterheart/broadcom-bt-firmware][10], which performs that extraction mechanically. Install the file matching the USB
+ID and reload the module:
+
+```sh
+$ sudo install -o root -g root -m 0644 BCM43142A0-0a5c-216c.hcd /lib/firmware/brcm/
+$ sudo modprobe -r btusb && sudo modprobe btusb
+```
+
+A successful patch load is visible in the kernel log, with a non-zero build number:
+
+```
+Bluetooth: hci0: BCM43142A0 'brcm/BCM43142A0-0a5c-216c.hcd' Patch
+Bluetooth: hci0: BCM43142A0 (001.001.011) build 0328
+```
+
+The blob lives outside any package, so it survives both reboots and `linux-firmware` upgrades and — unlike `wl` —
+needs no rebuilding across kernel versions.
+
+[10]: https://github.com/winterheart/broadcom-bt-firmware
+
 ## See also
 
 * [Official README file][3] (download)
