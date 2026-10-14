@@ -125,6 +125,61 @@ needs no rebuilding across kernel versions.
 
 [10]: https://github.com/winterheart/broadcom-bt-firmware
 
+## Radios hard-blocked after resume (HP laptops)
+
+On some HP laptops the WiFi radio comes back hard-blocked after a deep (S3) suspend, and the Bluetooth adapter
+disappears with it:
+
+```sh
+$ rfkill list
+1: brcmwl-0: Wireless LAN
+	Soft blocked: no
+	Hard blocked: yes
+```
+
+NetworkManager logs `Wi-Fi now disabled by radio killswitch` on resume. Reloading `wl`, resetting the PCI function and
+toggling the airplane key all leave the block in place; a cold boot clears it. This is not a driver bug: `wl`
+merely reports the state of the card's radio-disable input, which the platform is still asserting.
+
+The firmware drives that input from a chipset GPIO, and loses it across S3. Its `_WAK` method only restores the GPIO for
+pre-Windows 8 operating systems; Linux answers `_OSI("Windows 2013")`, so the firmware expects the OS to re-enable the
+radios through the HP wireless button device (`HPQ6001`), whose `_STA` method clears the WiFi and Bluetooth disable
+GPIOs. Linux evaluates `_STA` at boot only — but reading the device's sysfs `status` attribute evaluates it again:
+
+```sh
+$ cat /sys/bus/acpi/devices/HPQ6001:00/status
+15
+```
+
+If that clears the hard block, make it run on every resume with a service ordered after the sleep targets:
+
+`/etc/systemd/system/hp-wlbt-radio.service`
+```ini
+[Unit]
+Description=Re-enable WiFi/Bluetooth radios after resume (HP HPQ6001)
+After=suspend.target hibernate.target hybrid-sleep.target suspend-then-hibernate.target
+ConditionPathExists=/sys/bus/acpi/devices/HPQ6001:00/status
+
+[Service]
+Type=oneshot
+ExecStart=/bin/cat /sys/bus/acpi/devices/HPQ6001:00/status
+
+[Install]
+WantedBy=suspend.target hibernate.target hybrid-sleep.target suspend-then-hibernate.target
+```
+
+```sh
+$ sudo systemctl daemon-reload
+$ sudo systemctl enable hp-wlbt-radio.service
+```
+
+Note that a `systemd-sleep` hook script would have to go in `/usr/lib/systemd/system-sleep/`: systemd does not read
+`/etc/systemd/system-sleep/`, so a hook placed there is silently never run.
+
+Verified on an HP ENVY 15 (board `229C`, BIOS F.36) with a BCM43142. Switching to `s2idle`
+(`/sys/power/mem_sleep`) also avoids the block, since the firmware sleep/wake methods never run, but on hardware of
+that age it is a shallow sleep that keeps the fan and keyboard backlight on.
+
 ## See also
 
 * [Official README file][3] (download)
